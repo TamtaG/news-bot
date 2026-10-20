@@ -7,6 +7,8 @@ import { HnFetcher } from './fetch/hn.fetcher';
 import { RssFetcher } from './fetch/rss.fetcher';
 import { Item } from './items/item.entity';
 import { ItemsService } from './items/items.service';
+import { ArticleFetcher } from './summarize/article.fetcher';
+import { SummarizerService } from './summarize/summarizer.service';
 
 /** Everything except Telegram and the scheduler — also used by the CLI (src/cli.ts). */
 @Module({
@@ -24,7 +26,7 @@ import { ItemsService } from './items/items.service';
     }),
     TypeOrmModule.forFeature([Item]),
   ],
-  providers: [ItemsService, RssFetcher, HnFetcher, FetchService, DigestService],
+  providers: [ItemsService, RssFetcher, HnFetcher, FetchService, ArticleFetcher, SummarizerService, DigestService],
   exports: [ItemsService, FetchService, DigestService],
 })
 export class CoreModule {}

@@ -55,6 +55,10 @@ export class ItemsService {
     return picked;
   }
 
+  async saveSummary(id: number, summary: string): Promise<void> {
+    await this.repo.update({ id }, { summary });
+  }
+
   async markSent(ids: number[]): Promise<void> {
     if (ids.length) await this.repo.update({ id: In(ids) }, { sentAt: new Date() });
   }

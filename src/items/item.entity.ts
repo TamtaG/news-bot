@@ -21,6 +21,10 @@ export class Item {
   @Column({ type: 'text', nullable: true })
   snippet: string | null;
 
+  /** LLM summary (v1). null = not summarized yet, '' = tried but nothing usable to summarize. */
+  @Column({ type: 'text', nullable: true })
+  summary: string | null;
+
   /** Ranking score. v0: HN points, or the source's fixed weight for RSS. v2: LLM relevance score. */
   @Column({ type: 'integer', default: 0 })
   score: number;

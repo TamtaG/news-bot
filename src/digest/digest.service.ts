@@ -3,6 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import { Item } from '../items/item.entity';
 import { ItemsService } from '../items/items.service';
 import { RSS_SOURCES } from '../fetch/sources';
+import { SummarizerService } from '../summarize/summarizer.service';
 
 export interface Digest {
   /** Telegram HTML-formatted text. */
@@ -21,6 +22,7 @@ export class DigestService {
   constructor(
     private readonly items: ItemsService,
     private readonly config: ConfigService,
+    private readonly summarizer: SummarizerService,
   ) {}
 
   async build(): Promise<Digest | null> {
@@ -28,6 +30,7 @@ export class DigestService {
     const perSource = Number(this.config.get('DIGEST_MAX_PER_SOURCE') ?? 3);
     const picked = await this.items.pickForDigest(size, perSource);
     if (!picked.length) return null;
+    await this.summarizer.summarizeMissing(picked);
 
     const date = new Date().toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' });
     const lines = [`<b>📰 Tech digest — ${date}</b>`, '', ...picked.map(formatItem)];
@@ -44,8 +47,8 @@ function formatItem(item: Item, index: number): string {
   const meta = item.discussionUrl
     ? `${source} · ${item.score} pts · <a href="${escape(item.discussionUrl)}">comments</a>`
     : source;
-  // v1: the LLM summary goes on a line under the title.
-  return `${index + 1}. <a href="${escape(item.url)}">${escape(item.title)}</a>\n<i>${meta}</i>\n`;
+  const summary = item.summary ? `${escape(item.summary)}\n` : '';
+  return `${index + 1}. <a href="${escape(item.url)}">${escape(item.title)}</a>\n${summary}<i>${meta}</i>\n`;
 }
 
 /** Telegram HTML mode only needs these three escaped. */
