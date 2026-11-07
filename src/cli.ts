@@ -17,7 +17,11 @@ async function main() {
     await app.get(FetchService).fetchAll();
   } else if (command === 'preview') {
     const digest = await app.get(DigestService).build();
-    console.log(digest ? digest.text : 'No unsent items — run `npm run fetch:once` first.');
+    console.log(
+      digest
+        ? [digest.header, ...digest.items.map((i) => `${i.text}\n[👍] [👎]`)].join('\n\n')
+        : 'No unsent items — run `npm run fetch:once` first.',
+    );
   } else {
     console.log('Usage: cli.ts <fetch|preview>');
   }

@@ -2,6 +2,8 @@ import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { DigestService } from './digest/digest.service';
+import { Feedback } from './feedback/feedback.entity';
+import { FeedbackService } from './feedback/feedback.service';
 import { FetchService } from './fetch/fetch.service';
 import { HnFetcher } from './fetch/hn.fetcher';
 import { RssFetcher } from './fetch/rss.fetcher';
@@ -23,16 +25,17 @@ import { ArticleFetcher } from './summarize/article.fetcher';
       useFactory: (config: ConfigService) => ({
         type: 'better-sqlite3',
         database: config.get('DB_PATH') || 'data/news.sqlite',
-        entities: [Item, Profile],
+        entities: [Item, Profile, Feedback],
         // Fine for a personal SQLite DB: tables follow the entities automatically.
         synchronize: true,
       }),
     }),
-    TypeOrmModule.forFeature([Item, Profile]),
+    TypeOrmModule.forFeature([Item, Profile, Feedback]),
   ],
   providers: [
     ItemsService,
     ProfileService,
+    FeedbackService,
     RssFetcher,
     HnFetcher,
     FetchService,
@@ -42,6 +45,6 @@ import { ArticleFetcher } from './summarize/article.fetcher';
     AdviceService,
     DigestService,
   ],
-  exports: [ItemsService, ProfileService, FetchService, DigestService],
+  exports: [ItemsService, ProfileService, FeedbackService, FetchService, DigestService],
 })
 export class CoreModule {}

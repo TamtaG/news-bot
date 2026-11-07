@@ -9,7 +9,7 @@ Built as a learning project, one step at a time:
 | **v0** ✅ | Fetch RSS + Hacker News → SQLite → Telegram digest (titles + links) | Pipeline plumbing, cron, Telegram bots |
 | **v1** ✅ | 2-line LLM summary per item | Prompts, API calls, tokens & cost |
 | **v2** ✅ | Profile; LLM ranks every candidate against it; what / why / try advice per item | Structured output, LLM-as-judge, two-stage pipelines |
-| v3 | 👍/👎 buttons, feedback fed back into ranking | Feedback loops |
+| **v3** ✅ | 👍/👎 under each item; recent votes steer the next ranking | Feedback loops, in-context personalization |
 | v4 | Group "same story from 10 sources" with embeddings | Embeddings, vector similarity |
 | v5 | "What happened with X this week?" over the archive | RAG |
 
@@ -19,15 +19,21 @@ Built as a learning project, one step at a time:
 every hour     Fetch:   9 RSS feeds + HN top stories ─► SQLite (dedup by URL)
 
 DIGEST_CRON    Gather:  ~40 unsent candidates from the last 7 days (cheap score order, max 8 per source)
-(Mon 09:00)    Rank:    ONE Claude call scores all of them 0–10 against my profile, flags duplicates
+(Mon 09:00)    Rank:    ONE Claude call scores all of them 0–10 against my profile + recent 👍/👎, flags duplicates
                Pick:    score ≥ 6, no duplicates, max 3 per source, top 7
                Advise:  per picked item, read the article → Claude writes what / why / try
-               Send:    Telegram message, mark items as sent
+               Send:    a header message, then one message per item with 👍 / 👎 buttons; mark items as sent
 ```
 
 ### The profile
 
 Free text describing me: stack, interests, goals, and what I'm *not* interested in. It's stored per Telegram chat. See it with `/profile` and replace it with `/profile <new text>`. Until it's set, a default in `src/profile/profile.service.ts` is used. The "not interested" line matters most: it's what pushes funding news and off-topic research down.
+
+### Feedback (`src/feedback/`)
+
+- Each digest item is its own Telegram message, because buttons attach to a whole message. Tapping 👍 / 👎 stores a vote (one per item; tapping the same button again clears it), and a ✓ marks your current choice.
+- No model training: the last 30 votes go into the ranking prompt as examples of taste ("👍 [Hacker News] Claude Code sends your email…"). The prompt tells the model to treat them as refining the profile, not replacing it.
+- What to expect: votes nudge similar items by 1–2 points, and the ranker's reasons say so ("similar to downvoted item"). LLM scores also move ±1 between identical runs, which is why the cutoff is a threshold.
 
 ### Ranking (`src/rank/ranker.service.ts`)
 
@@ -57,11 +63,12 @@ src/
   fetch/      sources.ts (feeds, weights, HN keywords), rss + hn fetchers, FetchService
   items/      Item entity + ItemsService (save new, candidates, rankings, advice, mark sent)
   profile/    Profile entity + ProfileService (per chat, with a default)
+  feedback/   Feedback entity + FeedbackService (toggle a vote, recent votes with titles)
   llm/        LlmService (the one place that calls Claude: structured output, fallback, cost) + pricing
   rank/       RankerService: one call scores all candidates
   summarize/  ArticleFetcher (page → text), AdviceService (what / why / try)
   digest/     DigestService: gather → rank → pick → advise → format (no sending)
-  telegram/   grammY bot: /start, /digest, /fetch, /profile, sendDigest()
+  telegram/   grammY bot: /start, /digest, /fetch, /profile, 👍/👎 buttons, sendDigest()
   scheduler/  hourly fetch + digest cron
   cli.ts      run fetch / preview without Telegram
 ```
@@ -96,6 +103,12 @@ sqlite3 data/news.sqlite "select llmScore, source, title, rankReason from items 
 ```
 
 To redo the advice after changing its prompt: `sqlite3 data/news.sqlite "update items set summary = null, why = null, tryIt = null"`.
+
+To see your votes:
+
+```bash
+sqlite3 data/news.sqlite "select f.vote, i.title from feedback f join items i on i.id = f.itemId order by f.updatedAt desc"
+```
 
 To start over: delete `data/news.sqlite`. Tables are recreated automatically (`synchronize: true`).
 

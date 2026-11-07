@@ -3,15 +3,16 @@ import { ConfigService } from '@nestjs/config';
 import { Item } from '../items/item.entity';
 import { ItemsService } from '../items/items.service';
 import { RSS_SOURCES } from '../fetch/sources';
+import { FeedbackService } from '../feedback/feedback.service';
 import { describeLlmError, LlmService } from '../llm/llm.service';
 import { ProfileService } from '../profile/profile.service';
 import { Ranking, RankerService } from '../rank/ranker.service';
 import { AdviceService } from '../summarize/advice.service';
 
+/** Telegram HTML-formatted. Sent as one header message, then one message per item (so each gets 👍 / 👎). */
 export interface Digest {
-  /** Telegram HTML-formatted text. */
-  text: string;
-  itemIds: number[];
+  header: string;
+  items: { id: number; text: string }[];
 }
 
 const SOURCE_NAMES: Record<string, string> = {
@@ -23,7 +24,7 @@ const sourceName = (key: string) => SOURCE_NAMES[key] ?? key;
 /**
  * Builds the digest. Doesn't send anything — Telegram does that.
  *
- *   candidates (≈40, cheap score order) → LLM ranks all of them against the profile
+ *   candidates (≈40, cheap score order) → LLM ranks all of them against the profile + past 👍/👎
  *   → keep the best few (min score, no duplicates, max N per source) → LLM writes what / why / try
  *
  * Without an API key (or if ranking fails) it falls back to the cheap score order, no advice.
@@ -39,6 +40,7 @@ export class DigestService {
     private readonly ranker: RankerService,
     private readonly advice: AdviceService,
     private readonly profiles: ProfileService,
+    private readonly feedback: FeedbackService,
   ) {}
 
   async build(): Promise<Digest | null> {
@@ -55,11 +57,13 @@ export class DigestService {
     // Wider net than the digest size, so the LLM has real choices. Per-source cap keeps HN from filling it.
     const candidates = await this.items.pickForDigest(this.num('DIGEST_CANDIDATES', 40), 8, lookbackHours);
     if (!candidates.length) return null;
-    const profile = await this.profiles.get(this.config.get<string>('TELEGRAM_CHAT_ID'));
+    const chatId = this.config.get<string>('TELEGRAM_CHAT_ID');
+    const profile = await this.profiles.get(chatId);
+    const votes = await this.feedback.recent(chatId);
 
     let picked: Item[];
     try {
-      const { rankings } = await this.ranker.rank(candidates, profile, sourceName);
+      const { rankings } = await this.ranker.rank(candidates, profile, votes, sourceName);
       picked = select(candidates, rankings, { size, perSource, minScore: this.num('DIGEST_MIN_SCORE', 6) });
       this.logger.log(`Picked ${picked.length} of ${candidates.length} candidates`);
     } catch (err) {
@@ -68,20 +72,22 @@ export class DigestService {
     }
 
     if (!picked.length) {
-      return { text: `Nothing cleared the bar this week (${candidates.length} items checked).`, itemIds: [] };
+      return { header: `Nothing cleared the bar this week (${candidates.length} items checked).`, items: [] };
     }
     await this.advice.writeMissing(picked, profile);
     return this.format(picked);
   }
 
   markSent(digest: Digest): Promise<void> {
-    return this.items.markSent(digest.itemIds);
+    return this.items.markSent(digest.items.map((i) => i.id));
   }
 
   private format(picked: Item[]): Digest {
     const date = new Date().toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' });
-    const lines = [`<b>📰 Weekly tech digest — ${date}</b>`, '', ...picked.map(formatItem)];
-    return { text: lines.join('\n'), itemIds: picked.map((i) => i.id) };
+    return {
+      header: `<b>📰 Weekly tech digest — ${date}</b>\n${picked.length} picks. Tap 👍 / 👎 under each one to tune next week's ranking.`,
+      items: picked.map((item, i) => ({ id: item.id, text: formatItem(item, i) })),
+    };
   }
 
   private num(key: string, fallback: number): number {
@@ -121,7 +127,7 @@ function formatItem(item: Item, index: number): string {
   if (item.summary) lines.push(escape(item.summary));
   if (item.why) lines.push(`💡 ${escape(item.why)}`);
   if (item.tryIt) lines.push(`🛠 <b>Try:</b> ${escape(item.tryIt)}`);
-  lines.push(`<i>${meta}</i>`, '');
+  lines.push(`<i>${meta}</i>`);
   return lines.join('\n');
 }
 

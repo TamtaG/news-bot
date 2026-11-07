@@ -1,11 +1,20 @@
 import { Injectable, Logger, OnApplicationBootstrap, OnApplicationShutdown } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { Bot, Context } from 'grammy';
+import { Bot, Context, InlineKeyboard } from 'grammy';
 import { DigestService } from '../digest/digest.service';
+import { FeedbackService, Vote } from '../feedback/feedback.service';
 import { FetchService } from '../fetch/fetch.service';
 import { PROFILE_MAX_LENGTH, ProfileService } from '../profile/profile.service';
 
-const TELEGRAM_MAX_LENGTH = 4096;
+/** Button payload: "v:<itemId>:up" / "v:<itemId>:down". Telegram allows 64 bytes of callback data. */
+const VOTE_PATTERN = /^v:(\d+):(up|down)$/;
+
+/** 👍 / 👎 under an item; the current vote gets a ✓ so you can see what you picked. */
+function voteKeyboard(itemId: number, current: Vote | null): InlineKeyboard {
+  return new InlineKeyboard()
+    .text(current === 1 ? '👍 ✓' : '👍', `v:${itemId}:up`)
+    .text(current === -1 ? '👎 ✓' : '👎', `v:${itemId}:down`);
+}
 
 @Injectable()
 export class TelegramService implements OnApplicationBootstrap, OnApplicationShutdown {
@@ -18,6 +27,7 @@ export class TelegramService implements OnApplicationBootstrap, OnApplicationShu
     private readonly digest: DigestService,
     private readonly fetcher: FetchService,
     private readonly profiles: ProfileService,
+    private readonly feedback: FeedbackService,
   ) {
     const token = config.get<string>('TELEGRAM_BOT_TOKEN');
     if (!token) throw new Error('TELEGRAM_BOT_TOKEN is missing — see README');
@@ -60,6 +70,19 @@ export class TelegramService implements OnApplicationBootstrap, OnApplicationShu
         );
       }),
     );
+    // A tap on 👍 / 👎. Tapping the same button again clears the vote.
+    this.bot.callbackQuery(VOTE_PATTERN, async (ctx) => {
+      if (String(ctx.chat?.id) !== this.chatId) {
+        await ctx.answerCallbackQuery({ text: 'This bot is private.' });
+        return;
+      }
+      const itemId = Number(ctx.match[1]);
+      const vote: Vote = ctx.match[2] === 'up' ? 1 : -1;
+      const stored = await this.feedback.toggle(this.chatId, itemId, vote);
+      // The small toast at the top of the chat, then redraw the buttons to show the ✓.
+      await ctx.answerCallbackQuery({ text: stored === null ? 'Vote removed' : 'Noted — next week\'s ranking will use it' });
+      await ctx.editMessageReplyMarkup({ reply_markup: voteKeyboard(itemId, stored) });
+    });
     this.bot.catch((err) => this.logger.error(`Bot error: ${err.message}`));
 
     // Long polling: no public URL / webhook needed. Not awaited — it runs until stop().
@@ -82,14 +105,14 @@ export class TelegramService implements OnApplicationBootstrap, OnApplicationShu
       await this.bot.api.sendMessage(this.chatId, 'Nothing new since the last digest.');
       return;
     }
-    for (const chunk of splitMessage(digest.text)) {
-      await this.bot.api.sendMessage(this.chatId, chunk, {
-        parse_mode: 'HTML',
-        link_preview_options: { is_disabled: true },
-      });
+    const options = { parse_mode: 'HTML' as const, link_preview_options: { is_disabled: true } };
+    await this.bot.api.sendMessage(this.chatId, digest.header, options);
+    // One message per item: Telegram attaches buttons to a whole message, so this puts 👍 / 👎 right under each.
+    for (const item of digest.items) {
+      await this.bot.api.sendMessage(this.chatId, item.text, { ...options, reply_markup: voteKeyboard(item.id, null) });
     }
     await this.digest.markSent(digest);
-    this.logger.log(`Digest sent with ${digest.itemIds.length} items`);
+    this.logger.log(`Digest sent with ${digest.items.length} items`);
   }
 
   private async ownerOnly(ctx: Context, action: () => Promise<void>) {
@@ -99,21 +122,4 @@ export class TelegramService implements OnApplicationBootstrap, OnApplicationShu
     }
     await action();
   }
-}
-
-/** Telegram caps messages at 4096 chars; split on item boundaries (blank lines). */
-function splitMessage(text: string): string[] {
-  const chunks: string[] = [];
-  let current = '';
-  for (const block of text.split('\n\n')) {
-    const next = current ? `${current}\n\n${block}` : block;
-    if (next.length > TELEGRAM_MAX_LENGTH && current) {
-      chunks.push(current);
-      current = block;
-    } else {
-      current = next;
-    }
-  }
-  if (current) chunks.push(current);
-  return chunks;
 }
