@@ -10,8 +10,10 @@ Built as a learning project, one step at a time:
 | **v1** ✅ | 2-line LLM summary per item | Prompts, API calls, tokens & cost |
 | **v2** ✅ | Profile; LLM ranks every candidate against it; what / why / try advice per item | Structured output, LLM-as-judge, two-stage pipelines |
 | **v3** ✅ | 👍/👎 under each item; recent votes steer the next ranking | Feedback loops, in-context personalization |
-| v4 | Group "same story from 10 sources" with embeddings | Embeddings, vector similarity |
-| v5 | "What happened with X this week?" over the archive | RAG |
+| **v4** ✅ | Reply to an item with a question → answer from the article, with follow-ups | Grounded Q&A over a document, conversation history |
+| v5 | Web search for questions the article can't answer | Tool-using agents (server-side tools) |
+| v6 | Group "same story from 10 sources" with embeddings | Embeddings, vector similarity |
+| v7 | "What happened with X this week?" over the archive | RAG |
 
 ## How it works
 
@@ -34,6 +36,20 @@ Free text describing me: stack, interests, goals, and what I'm *not* interested 
 - Each digest item is its own Telegram message, because buttons attach to a whole message. Tapping 👍 / 👎 stores a vote (one per item; tapping the same button again clears it), and a ✓ marks your current choice.
 - No model training: the last 30 votes go into the ranking prompt as examples of taste ("👍 [Hacker News] Claude Code sends your email…"). The prompt tells the model to treat them as refining the profile, not replacing it.
 - What to expect: votes nudge similar items by 1–2 points, and the ranker's reasons say so ("similar to downvoted item"). LLM scores also move ±1 between identical runs, which is why the cutoff is a threshold.
+
+### Questions (`src/qa/`)
+
+- Reply to any digest item in Telegram with a question. The bot finds the item from the link in the message you replied to, so it also works for digests sent before this feature.
+- One Claude call gets the article text (fetched once, then saved on the item), your profile, the last 5 questions on that item, and the question.
+- It answers from the article. When the article doesn't cover something, it says so first and won't invent specifics about the product (it's often newer than the model's knowledge). Each answer is logged as `from article` or `NOT in article`. Lots of the latter is the signal to add web search (v5).
+- Reply to one of the bot's answers to ask a follow-up in the same thread.
+- About $0.025 per question on `claude-opus-5-5`. `QA_MODEL=claude-haiku-5-5` makes questions ~40x cheaper while the digest stays on Opus.
+
+To see questions that the article couldn't answer:
+
+```bash
+sqlite3 data/news.sqlite "select i.title, q.question from questions q join items i on i.id = q.itemId where q.answeredFromArticle = 0"
+```
 
 ### Ranking (`src/rank/ranker.service.ts`)
 
@@ -64,11 +80,12 @@ src/
   items/      Item entity + ItemsService (save new, candidates, rankings, advice, mark sent)
   profile/    Profile entity + ProfileService (per chat, with a default)
   feedback/   Feedback entity + FeedbackService (toggle a vote, recent votes with titles)
+  qa/         Question entity + QaService (find the item, answer from the article, keep the thread)
   llm/        LlmService (the one place that calls Claude: structured output, fallback, cost) + pricing
   rank/       RankerService: one call scores all candidates
   summarize/  ArticleFetcher (page → text), AdviceService (what / why / try)
   digest/     DigestService: gather → rank → pick → advise → format (no sending)
-  telegram/   grammY bot: /start, /digest, /fetch, /profile, 👍/👎 buttons, sendDigest()
+  telegram/   grammY bot: /start, /digest, /fetch, /profile, 👍/👎 buttons, replies as questions, sendDigest()
   scheduler/  hourly fetch + digest cron
   cli.ts      run fetch / preview without Telegram
 ```
@@ -94,7 +111,7 @@ npm run fetch:once       # pull all sources into the DB, no Telegram needed
 npm run digest:preview   # print what the next digest would contain (runs the LLM calls)
 ```
 
-In Telegram: `/digest` sends a digest now, `/fetch` pulls sources now, `/profile` shows or replaces the profile. All of them work only from `TELEGRAM_CHAT_ID`.
+In Telegram: `/digest` sends a digest now, `/fetch` pulls sources now, `/profile` shows or replaces the profile, and replying to an item asks about it. All of them work only from `TELEGRAM_CHAT_ID`.
 
 To see why items were picked or dropped:
 

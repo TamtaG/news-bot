@@ -5,6 +5,8 @@ import { DigestService } from '../digest/digest.service';
 import { FeedbackService, Vote } from '../feedback/feedback.service';
 import { FetchService } from '../fetch/fetch.service';
 import { PROFILE_MAX_LENGTH, ProfileService } from '../profile/profile.service';
+import { QaService } from '../qa/qa.service';
+import { describeLlmError } from '../llm/llm.service';
 
 /** Button payload: "v:<itemId>:up" / "v:<itemId>:down". Telegram allows 64 bytes of callback data. */
 const VOTE_PATTERN = /^v:(\d+):(up|down)$/;
@@ -28,6 +30,7 @@ export class TelegramService implements OnApplicationBootstrap, OnApplicationShu
     private readonly fetcher: FetchService,
     private readonly profiles: ProfileService,
     private readonly feedback: FeedbackService,
+    private readonly qa: QaService,
   ) {
     const token = config.get<string>('TELEGRAM_BOT_TOKEN');
     if (!token) throw new Error('TELEGRAM_BOT_TOKEN is missing — see README');
@@ -41,7 +44,8 @@ export class TelegramService implements OnApplicationBootstrap, OnApplicationShu
       ctx.reply(
         `Hi! Your chat id is <code>${ctx.chat.id}</code>.\n` +
           `Put it in .env as TELEGRAM_CHAT_ID and restart.\n\n` +
-          `Commands: /digest — send a digest now, /fetch — pull sources now, /profile — see or change what the bot ranks for`,
+          `Commands: /digest — send a digest now, /fetch — pull sources now, /profile — see or change what the bot ranks for.\n` +
+          `To ask about a digest item, reply to its message.`,
         { parse_mode: 'HTML' },
       ),
     );
@@ -83,6 +87,45 @@ export class TelegramService implements OnApplicationBootstrap, OnApplicationShu
       await ctx.answerCallbackQuery({ text: stored === null ? 'Vote removed' : 'Noted — next week\'s ranking will use it' });
       await ctx.editMessageReplyMarkup({ reply_markup: voteKeyboard(itemId, stored) });
     });
+    // Any other text = a question. It must be a reply, so we know which item it's about.
+    // Registered after the commands: grammY stops at the first handler that matches.
+    this.bot.on('message:text', (ctx) =>
+      this.ownerOnly(ctx, async () => {
+        const question = ctx.message.text.trim();
+        if (question.startsWith('/')) return; // unknown command
+        const repliedTo = ctx.message.reply_to_message;
+        if (!repliedTo) {
+          await ctx.reply('To ask about a news item, reply to its message (swipe left on it, or long-press → Reply).');
+          return;
+        }
+        if (!this.qa.enabled) {
+          await ctx.reply('Questions need ANTHROPIC_API_KEY to be set.');
+          return;
+        }
+
+        // Links in the replied-to message: a digest item's title links to its article.
+        const links = (repliedTo.entities ?? []).flatMap((e) => (e.type === 'text_link' ? [e.url] : []));
+        const chatId = String(ctx.chat.id);
+        const item = await this.qa.findItem(chatId, { messageId: repliedTo.message_id, links });
+        if (!item) {
+          await ctx.reply('I can’t tell which item that message is about. Reply to a digest item, or to one of my answers.');
+          return;
+        }
+
+        await ctx.replyWithChatAction('typing');
+        try {
+          const answer = await this.qa.answer(chatId, item, question);
+          const sent = await ctx.reply(answer.text, {
+            reply_parameters: { message_id: ctx.message.message_id },
+            link_preview_options: { is_disabled: true },
+          });
+          await this.qa.remember(chatId, item, question, answer, sent.message_id);
+        } catch (err) {
+          this.logger.error(`Q&A failed: ${describeLlmError(err)}`);
+          await ctx.reply(`Couldn’t answer that: ${describeLlmError(err)}`);
+        }
+      }),
+    );
     this.bot.catch((err) => this.logger.error(`Bot error: ${err.message}`));
 
     // Long polling: no public URL / webhook needed. Not awaited — it runs until stop().

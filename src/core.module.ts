@@ -12,6 +12,8 @@ import { ItemsService } from './items/items.service';
 import { LlmService } from './llm/llm.service';
 import { Profile } from './profile/profile.entity';
 import { ProfileService } from './profile/profile.service';
+import { Question } from './qa/question.entity';
+import { QaService } from './qa/qa.service';
 import { RankerService } from './rank/ranker.service';
 import { AdviceService } from './summarize/advice.service';
 import { ArticleFetcher } from './summarize/article.fetcher';
@@ -25,12 +27,12 @@ import { ArticleFetcher } from './summarize/article.fetcher';
       useFactory: (config: ConfigService) => ({
         type: 'better-sqlite3',
         database: config.get('DB_PATH') || 'data/news.sqlite',
-        entities: [Item, Profile, Feedback],
+        entities: [Item, Profile, Feedback, Question],
         // Fine for a personal SQLite DB: tables follow the entities automatically.
         synchronize: true,
       }),
     }),
-    TypeOrmModule.forFeature([Item, Profile, Feedback]),
+    TypeOrmModule.forFeature([Item, Profile, Feedback, Question]),
   ],
   providers: [
     ItemsService,
@@ -44,7 +46,8 @@ import { ArticleFetcher } from './summarize/article.fetcher';
     RankerService,
     AdviceService,
     DigestService,
+    QaService,
   ],
-  exports: [ItemsService, ProfileService, FeedbackService, FetchService, DigestService],
+  exports: [ItemsService, ProfileService, FeedbackService, FetchService, DigestService, QaService],
 })
 export class CoreModule {}

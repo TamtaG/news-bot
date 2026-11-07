@@ -25,6 +25,10 @@ export class Item {
   @Column({ type: 'text', nullable: true })
   summary: string | null;
 
+  /** The article as plain text, saved when advice is written so follow-up questions don't refetch it. */
+  @Column({ type: 'text', nullable: true })
+  articleText: string | null;
+
   /** LLM advice (v2): why it matters to the reader. null = not written yet, '' = skipped. */
   @Column({ type: 'text', nullable: true })
   why: string | null;

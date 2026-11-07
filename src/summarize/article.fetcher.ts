@@ -1,4 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { Item } from '../items/item.entity';
+import { ItemsService } from '../items/items.service';
 
 /** Enough text for a good 2-sentence summary, without paying for whole long-reads. */
 const MAX_CHARS = 8_000;
@@ -13,6 +15,19 @@ const MAX_BYTES = 2_000_000;
 @Injectable()
 export class ArticleFetcher {
   private readonly logger = new Logger(ArticleFetcher.name);
+
+  constructor(private readonly items: ItemsService) {}
+
+  /** The item's page as text: from the DB if fetched before, otherwise fetched now and saved. */
+  async pageText(item: Item): Promise<string | null> {
+    if (item.articleText) return item.articleText;
+    const text = await this.fetchText(item.url);
+    if (text) {
+      item.articleText = text;
+      await this.items.saveArticleText(item.id, text);
+    }
+    return text;
+  }
 
   async fetchText(url: string): Promise<string | null> {
     try {

@@ -39,10 +39,18 @@ export class LlmService {
     this.enabled = !!(config.get('ANTHROPIC_API_KEY') || config.get('ANTHROPIC_AUTH_TOKEN'));
   }
 
-  async parse<S extends z.ZodType>(opts: { schema: S; system: string; user: string; effort: Effort }): Promise<LlmResult<z.infer<S>>> {
-    const useFallback = SUPPORTS_FALLBACK.has(this.model);
+  async parse<S extends z.ZodType>(opts: {
+    schema: S;
+    system: string;
+    user: string;
+    effort: Effort;
+    /** Overrides LLM_MODEL for this call (e.g. a cheaper model for chatty Q&A). */
+    model?: string;
+  }): Promise<LlmResult<z.infer<S>>> {
+    const model = opts.model || this.model;
+    const useFallback = SUPPORTS_FALLBACK.has(model);
     const response = await this.client.beta.messages.parse({
-      model: this.model,
+      model,
       max_tokens: 16_000,
       // Effort = how hard the model thinks before answering. Higher = better judgment, more tokens.
       output_config: { effort: opts.effort, format: betaZodOutputFormat(opts.schema) },

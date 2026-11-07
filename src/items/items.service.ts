@@ -59,6 +59,18 @@ export class ItemsService {
     await this.repo.update({ id }, advice);
   }
 
+  async saveArticleText(id: number, articleText: string): Promise<void> {
+    await this.repo.update({ id }, { articleText });
+  }
+
+  findById(id: number): Promise<Item | null> {
+    return this.repo.findOneBy({ id });
+  }
+
+  findByUrl(url: string): Promise<Item | null> {
+    return this.repo.findOneBy({ url });
+  }
+
   async saveRankings(rankings: Map<number, { score: number; reason: string }>): Promise<void> {
     for (const [id, r] of rankings) {
       await this.repo.update({ id }, { llmScore: r.score, rankReason: r.reason });

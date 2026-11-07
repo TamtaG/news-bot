@@ -91,7 +91,7 @@ export class AdviceService {
 
   private async sourceText(item: Item): Promise<string | null> {
     if (item.snippet && item.snippet.length >= MIN_SNIPPET_FOR_ADVICE) return item.snippet;
-    const page = await this.articles.fetchText(item.url);
+    const page = await this.articles.pageText(item);
     return page ?? item.snippet; // a short snippet is still better than nothing
   }
 
