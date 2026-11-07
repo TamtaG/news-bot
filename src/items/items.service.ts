@@ -55,8 +55,14 @@ export class ItemsService {
     return picked;
   }
 
-  async saveSummary(id: number, summary: string): Promise<void> {
-    await this.repo.update({ id }, { summary });
+  async saveAdvice(id: number, advice: { summary: string; why: string; tryIt: string }): Promise<void> {
+    await this.repo.update({ id }, advice);
+  }
+
+  async saveRankings(rankings: Map<number, { score: number; reason: string }>): Promise<void> {
+    for (const [id, r] of rankings) {
+      await this.repo.update({ id }, { llmScore: r.score, rankReason: r.reason });
+    }
   }
 
   async markSent(ids: number[]): Promise<void> {

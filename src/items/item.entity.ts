@@ -21,9 +21,25 @@ export class Item {
   @Column({ type: 'text', nullable: true })
   snippet: string | null;
 
-  /** LLM summary (v1). null = not summarized yet, '' = tried but nothing usable to summarize. */
+  /** LLM summary: what it is. null = not written yet, '' = tried but nothing usable to summarize. */
   @Column({ type: 'text', nullable: true })
   summary: string | null;
+
+  /** LLM advice (v2): why it matters to the reader. null = not written yet, '' = skipped. */
+  @Column({ type: 'text', nullable: true })
+  why: string | null;
+
+  /** LLM advice (v2): one concrete way to try it. */
+  @Column({ type: 'text', nullable: true })
+  tryIt: string | null;
+
+  /** LLM relevance score 0–10 against the profile (v2), from the last ranking it was part of. */
+  @Column({ type: 'integer', nullable: true })
+  llmScore: number | null;
+
+  /** The ranker's one-line reason, kept for debugging "why did this get picked?". */
+  @Column({ type: 'text', nullable: true })
+  rankReason: string | null;
 
   /** Ranking score. v0: HN points, or the source's fixed weight for RSS. v2: LLM relevance score. */
   @Column({ type: 'integer', default: 0 })

@@ -7,8 +7,12 @@ import { HnFetcher } from './fetch/hn.fetcher';
 import { RssFetcher } from './fetch/rss.fetcher';
 import { Item } from './items/item.entity';
 import { ItemsService } from './items/items.service';
+import { LlmService } from './llm/llm.service';
+import { Profile } from './profile/profile.entity';
+import { ProfileService } from './profile/profile.service';
+import { RankerService } from './rank/ranker.service';
+import { AdviceService } from './summarize/advice.service';
 import { ArticleFetcher } from './summarize/article.fetcher';
-import { SummarizerService } from './summarize/summarizer.service';
 
 /** Everything except Telegram and the scheduler — also used by the CLI (src/cli.ts). */
 @Module({
@@ -19,14 +23,25 @@ import { SummarizerService } from './summarize/summarizer.service';
       useFactory: (config: ConfigService) => ({
         type: 'better-sqlite3',
         database: config.get('DB_PATH') || 'data/news.sqlite',
-        entities: [Item],
+        entities: [Item, Profile],
         // Fine for a personal SQLite DB: tables follow the entities automatically.
         synchronize: true,
       }),
     }),
-    TypeOrmModule.forFeature([Item]),
+    TypeOrmModule.forFeature([Item, Profile]),
   ],
-  providers: [ItemsService, RssFetcher, HnFetcher, FetchService, ArticleFetcher, SummarizerService, DigestService],
-  exports: [ItemsService, FetchService, DigestService],
+  providers: [
+    ItemsService,
+    ProfileService,
+    RssFetcher,
+    HnFetcher,
+    FetchService,
+    ArticleFetcher,
+    LlmService,
+    RankerService,
+    AdviceService,
+    DigestService,
+  ],
+  exports: [ItemsService, ProfileService, FetchService, DigestService],
 })
 export class CoreModule {}

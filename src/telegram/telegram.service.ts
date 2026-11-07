@@ -3,6 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import { Bot, Context } from 'grammy';
 import { DigestService } from '../digest/digest.service';
 import { FetchService } from '../fetch/fetch.service';
+import { PROFILE_MAX_LENGTH, ProfileService } from '../profile/profile.service';
 
 const TELEGRAM_MAX_LENGTH = 4096;
 
@@ -16,6 +17,7 @@ export class TelegramService implements OnApplicationBootstrap, OnApplicationShu
     config: ConfigService,
     private readonly digest: DigestService,
     private readonly fetcher: FetchService,
+    private readonly profiles: ProfileService,
   ) {
     const token = config.get<string>('TELEGRAM_BOT_TOKEN');
     if (!token) throw new Error('TELEGRAM_BOT_TOKEN is missing — see README');
@@ -29,7 +31,7 @@ export class TelegramService implements OnApplicationBootstrap, OnApplicationShu
       ctx.reply(
         `Hi! Your chat id is <code>${ctx.chat.id}</code>.\n` +
           `Put it in .env as TELEGRAM_CHAT_ID and restart.\n\n` +
-          `Commands: /digest — send a digest now, /fetch — pull sources now`,
+          `Commands: /digest — send a digest now, /fetch — pull sources now, /profile — see or change what the bot ranks for`,
         { parse_mode: 'HTML' },
       ),
     );
@@ -38,6 +40,24 @@ export class TelegramService implements OnApplicationBootstrap, OnApplicationShu
       this.ownerOnly(ctx, async () => {
         const { fetched, saved } = await this.fetcher.fetchAll();
         await ctx.reply(`Fetched ${fetched} items, ${saved} new.`);
+      }),
+    );
+    // "/profile" shows it; "/profile <text>" replaces it. ctx.match is the text after the command.
+    this.bot.command('profile', (ctx) =>
+      this.ownerOnly(ctx, async () => {
+        const chatId = String(ctx.chat.id);
+        const text = String(ctx.match ?? '').trim();
+        if (text) {
+          await this.profiles.set(chatId, text);
+          const note = text.length > PROFILE_MAX_LENGTH ? ` (cut to ${PROFILE_MAX_LENGTH} characters)` : '';
+          await ctx.reply(`Profile saved${note}. The next digest is ranked against it.`);
+          return;
+        }
+        const current = await this.profiles.get(chatId);
+        await ctx.reply(
+          `Your profile — the digest is ranked and advised against this:\n\n${current}\n\n` +
+            `To change it, send /profile followed by the new text (everything is replaced).`,
+        );
       }),
     );
     this.bot.catch((err) => this.logger.error(`Bot error: ${err.message}`));

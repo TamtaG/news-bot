@@ -25,7 +25,8 @@
     "reflect-metadata": "^0.2.2",
     "rss-parser": "^3.13.0",
     "rxjs": "^7.8.2",
-    "typeorm": "^0.3.31"
+    "typeorm": "^0.3.31",
+    "zod": "^4.6.7"
   },
   "devDependencies": {
     "@nestjs/cli": "^11.0.24",

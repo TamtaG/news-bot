@@ -1,48 +1,67 @@
 # news-bot
 
-A personal Telegram bot that sends me a weekly digest of AI and software-engineering news.
+A personal Telegram bot that sends me a weekly digest of new AI and software-engineering tools and releases: what each one is, why it matters to me, and one concrete way to try it.
 
 Built as a learning project, one step at a time:
 
 | Version | What it adds | What I learn |
 |---|---|---|
-| **v0** ✅ | Fetch RSS + Hacker News → SQLite → daily Telegram digest (titles + links) | Pipeline plumbing, cron, Telegram bots |
+| **v0** ✅ | Fetch RSS + Hacker News → SQLite → Telegram digest (titles + links) | Pipeline plumbing, cron, Telegram bots |
 | **v1** ✅ | 2-line LLM summary per item | Prompts, API calls, tokens & cost |
-| v2 | LLM scores each item 1–10 against my interests (structured JSON) | Structured output, LLM-as-judge |
-| v3 | 👍/👎 buttons, feedback fed back into scoring | Feedback loops |
+| **v2** ✅ | Profile; LLM ranks every candidate against it; what / why / try advice per item | Structured output, LLM-as-judge, two-stage pipelines |
+| v3 | 👍/👎 buttons, feedback fed back into ranking | Feedback loops |
 | v4 | Group "same story from 10 sources" with embeddings | Embeddings, vector similarity |
 | v5 | "What happened with X this week?" over the archive | RAG |
 
 ## How it works
 
 ```
-every hour        Fetch:      9 RSS feeds + HN top stories ─► SQLite (dedup by URL)
-DIGEST_CRON       Pick:       unsent, last 7 days, highest score, max 3 per source, top 7
-                  Summarize:  article text → Claude writes ≤2 sentences (picked items only)
-                  Send:       Telegram message, mark items as sent
+every hour     Fetch:   9 RSS feeds + HN top stories ─► SQLite (dedup by URL)
+
+DIGEST_CRON    Gather:  ~40 unsent candidates from the last 7 days (cheap score order, max 8 per source)
+(Mon 09:00)    Rank:    ONE Claude call scores all of them 0–10 against my profile, flags duplicates
+               Pick:    score ≥ 6, no duplicates, max 3 per source, top 7
+               Advise:  per picked item, read the article → Claude writes what / why / try
+               Send:    Telegram message, mark items as sent
 ```
 
-- **Score** in v0 is simple: HN points for HN stories, a fixed per-feed `weight` for RSS (see `src/fetch/sources.ts`).
-- HN is filtered by title keywords, since most of the front page is off-topic. v2 replaces this with LLM scoring.
-- RSS entries older than 7 days are ignored (some feeds ship their whole archive).
+### The profile
 
-### Summaries (v1)
+Free text describing me: stack, interests, goals, and what I'm *not* interested in. It's stored per Telegram chat. See it with `/profile` and replace it with `/profile <new text>`. Until it's set, a default in `src/profile/profile.service.ts` is used. The "not interested" line matters most: it's what pushes funding news and off-topic research down.
 
-- Only the ~10 items going into the digest are summarized, so cost stays tiny. Each run logs tokens and $ cost.
-- Input is the feed snippet if it's long enough, otherwise the article page as rough plain text (`src/summarize/article.fetcher.ts`).
-- **No text, no summary.** If the page can't be read (paywall, PDF, 403) or the model replies `SKIP`, the item goes out with just its title. A model given only a title would invent a summary.
-- The prompt is in `src/summarize/summarizer.service.ts`. Tweak it, then run `npm run digest:preview` to see the effect. To re-summarize, clear the column: `sqlite3 data/news.sqlite "update items set summary = null"`.
-- Model: `LLM_MODEL` (default `claude-opus-5-5` at `effort: low`). `claude-haiku-5-5` is ~40x cheaper and worth comparing.
-- Server-side refusal fallback (`fallbacks: "default"`) is on for models that support it.
-- Without `ANTHROPIC_API_KEY` the digest still goes out, just without summaries.
+### Ranking (`src/rank/ranker.service.ts`)
+
+- One call over titles + short snippets, so it's cheap (~5k input tokens), and seeing everything at once is what lets it spot the same story from two sources.
+- The scale is spelled out in the prompt (9–10 = usable this week … 0–3 = off-topic). Newsletter roundups are capped at 3, since each digest item is one story.
+- Each item's score and a one-line reason are saved (`llmScore`, `rankReason`), to answer "why did this get picked?".
+- Runs at `effort: medium`: judging relevance is the core of the digest.
+
+### Advice (`src/summarize/advice.service.ts`)
+
+- Only for the ~7 picked items. Input is the feed snippet if it's long enough, otherwise the article page as rough plain text.
+- **No text, no advice.** If the page can't be read (paywall, PDF, 403), the item goes out with just its title. A model given only a title would invent the rest.
+- Runs at `effort: low`: three short sentences don't need deep thinking.
+
+### Structured output (`src/llm/llm.service.ts`)
+
+Both calls pass a zod schema. The API guarantees JSON matching it, and the SDK returns a typed object: no "answer in JSON" in the prompt, no `JSON.parse`. String length can't be enforced by the schema, so the prompt asks for short sentences and the code trims overruns.
+
+### Cost
+
+A weekly run is about **$0.15** on `claude-opus-5-5`: ~$0.05 ranking + ~$0.10 advice. Every step logs its tokens and cost. `LLM_MODEL=claude-haiku-5-5` is ~40x cheaper and worth comparing. Server-side refusal fallback (`fallbacks: "default"`) is on for models that support it.
+
+Without `ANTHROPIC_API_KEY` the digest still goes out: picked by the cheap score, titles and links only.
 
 ```
 src/
   fetch/      sources.ts (feeds, weights, HN keywords), rss + hn fetchers, FetchService
-  items/      Item entity + ItemsService (save new, pick for digest, mark sent)
-  summarize/  ArticleFetcher (page → text), SummarizerService (Claude call), pricing
-  digest/     DigestService: pick + summarize + format (no sending)
-  telegram/   grammY bot: /start, /digest, /fetch, sendDigest()
+  items/      Item entity + ItemsService (save new, candidates, rankings, advice, mark sent)
+  profile/    Profile entity + ProfileService (per chat, with a default)
+  llm/        LlmService (the one place that calls Claude: structured output, fallback, cost) + pricing
+  rank/       RankerService: one call scores all candidates
+  summarize/  ArticleFetcher (page → text), AdviceService (what / why / try)
+  digest/     DigestService: gather → rank → pick → advise → format (no sending)
+  telegram/   grammY bot: /start, /digest, /fetch, /profile, sendDigest()
   scheduler/  hourly fetch + digest cron
   cli.ts      run fetch / preview without Telegram
 ```
@@ -56,18 +75,27 @@ src/
    ```
    Put the token in `TELEGRAM_BOT_TOKEN`.
 3. **Find your chat id:** `npm run start:dev`, open your bot in Telegram, send `/start`. It replies with your chat id. Put it in `TELEGRAM_CHAT_ID` and restart.
-4. For summaries: create an API key at [console.anthropic.com](https://console.anthropic.com) and put it in `ANTHROPIC_API_KEY`.
-5. Send `/digest` to get one right away.
+4. **For ranking and advice:** create an API key at [console.anthropic.com](https://console.anthropic.com) and put it in `ANTHROPIC_API_KEY`.
+5. **Tell it about yourself:** send `/profile` to see the default, then `/profile <your own text>`.
+6. Send `/digest` to get one right away.
 
 ## Commands
 
 ```bash
 npm run start:dev        # run the bot (hot reload)
 npm run fetch:once       # pull all sources into the DB, no Telegram needed
-npm run digest:preview   # print what the next digest would contain
+npm run digest:preview   # print what the next digest would contain (runs the LLM calls)
 ```
 
-In Telegram: `/digest` sends a digest now, `/fetch` pulls sources now. Both work only from `TELEGRAM_CHAT_ID`.
+In Telegram: `/digest` sends a digest now, `/fetch` pulls sources now, `/profile` shows or replaces the profile. All of them work only from `TELEGRAM_CHAT_ID`.
+
+To see why items were picked or dropped:
+
+```bash
+sqlite3 data/news.sqlite "select llmScore, source, title, rankReason from items where llmScore is not null order by llmScore desc"
+```
+
+To redo the advice after changing its prompt: `sqlite3 data/news.sqlite "update items set summary = null, why = null, tryIt = null"`.
 
 To start over: delete `data/news.sqlite`. Tables are recreated automatically (`synchronize: true`).
 
