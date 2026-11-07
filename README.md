@@ -1,6 +1,6 @@
 # news-bot
 
-A personal Telegram bot that sends me a daily digest of AI and software-engineering news.
+A personal Telegram bot that sends me a weekly digest of AI and software-engineering news.
 
 Built as a learning project, one step at a time:
 
@@ -17,7 +17,7 @@ Built as a learning project, one step at a time:
 
 ```
 every hour        Fetch:      9 RSS feeds + HN top stories ─► SQLite (dedup by URL)
-DIGEST_CRON       Pick:       unsent, last 48h, highest score, max 3 per source
+DIGEST_CRON       Pick:       unsent, last 7 days, highest score, max 3 per source, top 7
                   Summarize:  article text → Claude writes ≤2 sentences (picked items only)
                   Send:       Telegram message, mark items as sent
 ```

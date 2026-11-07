@@ -13,7 +13,7 @@ const MIN_SNIPPET_FOR_SUMMARY = 300;
 const SKIP = 'SKIP';
 
 // The system prompt is the same for every call, so it's a constant (and cache-friendly later).
-const SYSTEM_PROMPT = `You write summaries for a personal daily tech-news digest read by a backend software engineer.
+const SYSTEM_PROMPT = `You write summaries for a personal weekly tech-news digest read by a backend software engineer.
 
 Summarize the article in at most 2 short sentences (under 300 characters total):
 - Say what actually happened or what the article claims, concretely. Name the thing (product, model, library, company).

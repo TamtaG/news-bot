@@ -35,7 +35,7 @@ export class ItemsService {
    * Unsent items from the last `maxAgeHours`, best first, with at most `perSource` from
    * any one source so a single busy feed can't fill the whole digest.
    */
-  async pickForDigest(limit: number, perSource = 3, maxAgeHours = 48): Promise<Item[]> {
+  async pickForDigest(limit: number, perSource = 3, maxAgeHours = 168): Promise<Item[]> {
     const since = new Date(Date.now() - maxAgeHours * 3600_000);
     const candidates = await this.repo.find({
       where: { sentAt: IsNull(), fetchedAt: MoreThan(since) },

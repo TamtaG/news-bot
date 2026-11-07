@@ -22,7 +22,7 @@ export class SchedulerService implements OnApplicationBootstrap {
 
   onApplicationBootstrap() {
     const tz = this.config.get<string>('TZ') || 'UTC';
-    const digestCron = this.config.get<string>('DIGEST_CRON') || '0 8 * * *';
+    const digestCron = this.config.get<string>('DIGEST_CRON') || '0 9 * * 1';
 
     this.add('fetch', '0 * * * *', tz, () => this.fetcher.fetchAll());
     // Fetch right before sending so the digest has the latest items.

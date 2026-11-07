@@ -26,14 +26,15 @@ export class DigestService {
   ) {}
 
   async build(): Promise<Digest | null> {
-    const size = Number(this.config.get('DIGEST_SIZE') ?? 10);
+    const size = Number(this.config.get('DIGEST_SIZE') ?? 7);
     const perSource = Number(this.config.get('DIGEST_MAX_PER_SOURCE') ?? 3);
-    const picked = await this.items.pickForDigest(size, perSource);
+    const lookbackHours = Number(this.config.get('DIGEST_LOOKBACK_HOURS') ?? 168);
+    const picked = await this.items.pickForDigest(size, perSource, lookbackHours);
     if (!picked.length) return null;
     await this.summarizer.summarizeMissing(picked);
 
     const date = new Date().toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' });
-    const lines = [`<b>📰 Tech digest — ${date}</b>`, '', ...picked.map(formatItem)];
+    const lines = [`<b>📰 Weekly tech digest — ${date}</b>`, '', ...picked.map(formatItem)];
     return { text: lines.join('\n'), itemIds: picked.map((i) => i.id) };
   }
 
